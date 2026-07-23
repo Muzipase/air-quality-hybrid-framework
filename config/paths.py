@@ -14,6 +14,7 @@ BASELINE_MODEL_PATH = MODELS_DIR / "baseline_svm.pkl"
 OPTIMIZED_MODEL_PATH = MODELS_DIR / "optimized_svm.pkl"
 SCALER_PATH = ARTIFACTS_DIR / "scaler.pkl"
 SHAP_VALUES_PATH = ARTIFACTS_DIR / "shap_values.json"
+SHAP_PLOTS_DIR = ARTIFACTS_DIR / "shap_plots"
 METRICS_PATH = ARTIFACTS_DIR / "metrics.json"
 
 def ensure_dirs():
@@ -32,6 +33,7 @@ __all__ = [
     "OPTIMIZED_MODEL_PATH",
     "SCALER_PATH",
     "SHAP_VALUES_PATH",
+    "SHAP_PLOTS_DIR",
     "METRICS_PATH",
     "ensure_dirs",
 ]

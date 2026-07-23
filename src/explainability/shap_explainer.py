@@ -1,6 +1,13 @@
+import logging
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import shap
+
+logger = logging.getLogger(__name__)
+
+N_KMEANS_BACKGROUND = 50
 
 
 class ShapExplainer:
@@ -8,11 +15,14 @@ class ShapExplainer:
         self.model = model
         self.background_data = background_data.copy()
         self.feature_names = list(background_data.columns)
-        background_sample = self.background_data.sample(
-            n=min(len(self.background_data), 50), random_state=42
-        )
+
+        n_clusters = min(N_KMEANS_BACKGROUND, len(self.background_data))
+        kmeans_obj = shap.kmeans(self.background_data, n_clusters)
+        background_kmeans = pd.DataFrame(kmeans_obj.data, columns=self.feature_names)
+        logger.info("SHAP background: %d kmeans clusters from %d samples", n_clusters, len(self.background_data))
+
         self.explainer = shap.KernelExplainer(
-            self._model_predict, background_sample, link="identity"
+            self._model_predict, background_kmeans, link="identity"
         )
 
     def _model_predict(self, data: np.ndarray) -> np.ndarray:
@@ -22,10 +32,10 @@ class ShapExplainer:
         return self.model.decision_function(df)
 
     def get_summary(self):
-        background_sample = self.background_data.sample(
-            n=min(len(self.background_data), 25), random_state=42
-        )
-        shap_values = self.explainer.shap_values(background_sample)
+        n_clusters = min(25, len(self.background_data))
+        kmeans_obj = shap.kmeans(self.background_data, n_clusters)
+        sample = pd.DataFrame(kmeans_obj.data, columns=self.feature_names)
+        shap_values = self.explainer.shap_values(sample)
 
         if isinstance(shap_values, list):
             aggregated = np.mean([np.abs(values).mean(axis=0) for values in shap_values], axis=0)
@@ -54,3 +64,22 @@ class ShapExplainer:
             "shap_values": values,
             "base_values": base_values,
         }
+
+    def save_summary_plot(self, X: pd.DataFrame, save_dir: Path) -> Path:
+        """Save SHAP beeswarm plot as high-res PNG for non-Python stakeholders."""
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        save_dir.mkdir(parents=True, exist_ok=True)
+        shap_values = self.explainer.shap_values(X)
+
+        plt.figure(figsize=(10, 6))
+        shap.summary_plot(shap_values, X, show=False)
+        plt.tight_layout()
+
+        png_path = save_dir / "shap_beeswarm.png"
+        plt.savefig(str(png_path), dpi=200, bbox_inches="tight")
+        plt.close()
+        logger.info("SHAP beeswarm plot saved to %s", png_path)
+        return png_path

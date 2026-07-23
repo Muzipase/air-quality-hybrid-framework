@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from config.paths import (
     RAW_DATA_PATH, PROCESSED_DATA_PATH,
     BASELINE_MODEL_PATH, OPTIMIZED_MODEL_PATH,
-    METRICS_PATH, SCALER_PATH, ensure_dirs,
+    METRICS_PATH, SCALER_PATH, SHAP_PLOTS_DIR, ensure_dirs,
 )
 from src.ingestion.fetch_data import fetch_data
 from src.preprocessing.clean_data import clean_data
@@ -20,6 +20,7 @@ from src.preprocessing.missing_values import fill_missing_values
 from src.preprocessing.feature_engineering import engineer_features
 from src.preprocessing.scaling import fit_scaler, save_scaler, apply_scaler_to_dataframe
 from src.preprocessing.split_dataset import split_data
+from src.preprocessing.multicollinearity import compute_vif
 from src.balancing.smote_tomek import apply_smote_tomek
 from src.models.baseline_svm import train_baseline_svm
 from src.models.optimized_svm import train_optimized_svm
@@ -57,9 +58,14 @@ def run_pipeline(source: str = "auto", city: str = None):
     data.to_csv(PROCESSED_DATA_PATH, index=False)
     logger.info("Preprocessed %d records, saved to %s", len(data), PROCESSED_DATA_PATH)
 
-    # 3. Split & balance
+    # 3. Multicollinearity check
     excluded = {"aqi_category", "timestamp", "location", "city", "country"}
-    X = data[[c for c in data.columns if c not in excluded and pd.api.types.is_numeric_dtype(data[c])]]
+    feature_cols = [c for c in data.columns if c not in excluded and pd.api.types.is_numeric_dtype(data[c])]
+    vif_df = compute_vif(data, feature_cols)
+    logger.info("VIF analysis:\n%s", vif_df.to_string(index=False))
+
+    # 4. Split & balance
+    X = data[feature_cols]
     y = data['aqi_category']
 
     X_train, X_test, y_train, y_test = split_data(X, y)
@@ -68,22 +74,30 @@ def run_pipeline(source: str = "auto", city: str = None):
     X_train_bal, y_train_bal = apply_smote_tomek(X_train, y_train)
     logger.info("After SMOTE-Tomek: %d records (was %d)", len(X_train_bal), len(X_train))
 
-    # 4. Train baseline
+    # 5. Train baseline
     logger.info("Training baseline SVM...")
     baseline_model = train_baseline_svm(X_train_bal, y_train_bal)
     joblib.dump(baseline_model, BASELINE_MODEL_PATH)
     logger.info("Baseline model saved to %s", BASELINE_MODEL_PATH)
 
-    # 5. Train optimized
+    # 6. Train optimized
     logger.info("Training optimized SVM with Bayesian optimization...")
     optimized_model, best_params, study = train_optimized_svm(X_train_bal, y_train_bal)
     joblib.dump(optimized_model, OPTIMIZED_MODEL_PATH)
     logger.info("Optimized model saved to %s (best params: %s)", OPTIMIZED_MODEL_PATH, best_params)
 
-    # 6. Evaluate
+    # 7. Evaluate
     y_pred = optimized_model.predict(X_test)
     metrics = compute_metrics(y_test, y_pred, save_path=METRICS_PATH)
     logger.info("Evaluation — Accuracy: %.4f, F1: %.4f", metrics['accuracy'], metrics['f1_score'])
+
+    # 8. Save SHAP beeswarm plot
+    try:
+        from src.explainability.shap_explainer import ShapExplainer
+        explainer = ShapExplainer(optimized_model, X_train_bal)
+        explainer.save_summary_plot(X_test, SHAP_PLOTS_DIR)
+    except Exception as e:
+        logger.warning("Could not save SHAP plot: %s", e)
 
     logger.info("Pipeline complete.")
     return True
