@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { fetchCityAirQuality, fetchCityForecast } from '@/lib/api';
+import { fetchCityAirQuality, fetchCityForecast, fetchLiveWeather, fetchLiveWeatherHourly } from '@/lib/api';
 import { useCity } from '@/lib/city-context';
 import type { CityAirQuality, ForecastData, HourlyForecast, DailyForecast } from '@/types';
 
@@ -104,6 +104,8 @@ export default function Dashboard() {
   const { selectedCity } = useCity();
   const [data, setData] = useState<CityAirQuality | null>(null);
   const [forecast, setForecast] = useState<ForecastData | null>(null);
+  const [liveWeather, setLiveWeather] = useState<{ temperature: number; humidity: number; wind_speed: number } | null>(null);
+  const [forecastWeatherMap, setForecastWeatherMap] = useState<Record<string, { temperature: number; humidity: number; wind_speed: number }> | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState('');
 
@@ -115,6 +117,22 @@ export default function Dashboard() {
     ]);
     setData(aqResult);
     setForecast(forecastResult);
+
+    if (aqResult && aqResult.readings.temperature === 0 && aqResult.readings.humidity === 0) {
+      const wx = await fetchLiveWeather(selectedCity);
+      if (wx) setLiveWeather(wx);
+    } else {
+      setLiveWeather(null);
+    }
+
+    const hasZeroWeather = forecastResult?.hourly?.some(h => h.temperature === 0 && h.humidity === 0) ?? false;
+    if (hasZeroWeather) {
+      const wxMap = await fetchLiveWeatherHourly(selectedCity, 3);
+      if (wxMap) setForecastWeatherMap(wxMap);
+    } else {
+      setForecastWeatherMap(null);
+    }
+
     if (aqResult) setLastUpdate(new Date().toLocaleTimeString());
     setLoading(false);
   }, [selectedCity]);
@@ -125,15 +143,42 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [loadData]);
 
-  const hourlyNow = forecast?.hourly?.slice(0, 48) || [];
-  const dailyData = forecast?.daily || [];
+  const hourlyNow = forecast?.hourly?.slice(0, 48).map(h => {
+    if (forecastWeatherMap && h.temperature === 0) {
+      const wx = forecastWeatherMap[h.timestamp];
+      if (wx) {
+        return { ...h, temperature: wx.temperature, humidity: wx.humidity, wind_speed: wx.wind_speed };
+      }
+    }
+    return h;
+  }) || [];
+  const dailyData = (forecast?.daily || []).map(d => {
+    if (forecastWeatherMap && d.temp_max === 0) {
+      const dayHours = Object.entries(forecastWeatherMap)
+        .filter(([ts]) => ts.startsWith(d.date))
+        .map(([, wx]) => wx);
+      if (dayHours.length > 0) {
+        const temps = dayHours.map(h => h.temperature);
+        const humids = dayHours.map(h => h.humidity);
+        const winds = dayHours.map(h => h.wind_speed);
+        return {
+          ...d,
+          temp_max: Math.max(...temps),
+          temp_min: Math.min(...temps),
+          humidity_avg: Math.round(humids.reduce((a, b) => a + b, 0) / humids.length),
+          wind_max: Math.max(...winds),
+        };
+      }
+    }
+    return d;
+  });
   const aqiValue = hourlyNow.length > 0 ? hourlyNow[0].aqi : (data ? getAQIValue(data.readings.pm25) : 0);
   const categoryColor = hourlyNow.length > 0 ? getCategoryColor(hourlyNow[0].category) : (data ? getCategoryColor(data.category) : '#eab308');
   const cityInfo = CITY_INFO[selectedCity] || { country: 'Zambia', province: '' };
   const currentPm25 = hourlyNow.length > 0 ? hourlyNow[0].pm25 : (data?.readings.pm25 ?? 0);
-  const currentTemp = hourlyNow.length > 0 ? hourlyNow[0].temperature : (data?.readings.temperature ?? 0);
-  const currentHumidity = hourlyNow.length > 0 ? hourlyNow[0].humidity : (data?.readings.humidity ?? 0);
-  const currentWind = hourlyNow.length > 0 ? hourlyNow[0].wind_speed : (data?.readings.wind_speed ?? 0);
+  const currentTemp = hourlyNow.length > 0 ? hourlyNow[0].temperature : (liveWeather?.temperature ?? data?.readings.temperature ?? 0);
+  const currentHumidity = hourlyNow.length > 0 ? hourlyNow[0].humidity : (liveWeather?.humidity ?? data?.readings.humidity ?? 0);
+  const currentWind = hourlyNow.length > 0 ? hourlyNow[0].wind_speed : (liveWeather?.wind_speed ?? data?.readings.wind_speed ?? 0);
   const currentCategory = hourlyNow.length > 0 ? hourlyNow[0].category : (data?.category ?? 'Moderate');
 
   return (

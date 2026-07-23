@@ -49,6 +49,57 @@ export async function fetchApiStatus(retries = 2): Promise<any> {
   return null;
 }
 
+// ==================== Live Weather (direct from Open-Meteo) ====================
+const CITY_COORDS: Record<string, { latitude: number; longitude: number }> = {
+  Lusaka: { latitude: -15.3875, longitude: 28.3228 },
+  Ndola: { latitude: -12.8, longitude: 28.2167 },
+  Kitwe: { latitude: -10.8833, longitude: 27.7833 },
+};
+
+export async function fetchLiveWeather(cityName: string): Promise<{ temperature: number; humidity: number; wind_speed: number } | null> {
+  const coords = CITY_COORDS[cityName];
+  if (!coords) return null;
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.latitude}&longitude=${coords.longitude}&current=temperature_2m,relative_humidity_2m,wind_speed_10m&timezone=Africa%2FLusaka`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const cur = data?.current;
+    if (!cur) return null;
+    return {
+      temperature: cur.temperature_2m ?? 0,
+      humidity: cur.relative_humidity_2m ?? 0,
+      wind_speed: cur.wind_speed_10m ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchLiveWeatherHourly(cityName: string, forecastDays: number = 3): Promise<Record<string, { temperature: number; humidity: number; wind_speed: number }> | null> {
+  const coords = CITY_COORDS[cityName];
+  if (!coords) return null;
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.latitude}&longitude=${coords.longitude}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m&timezone=Africa%2FLusaka&forecast_days=${forecastDays}`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const h = data?.hourly;
+    if (!h?.time) return null;
+    const map: Record<string, { temperature: number; humidity: number; wind_speed: number }> = {};
+    for (let i = 0; i < h.time.length; i++) {
+      map[h.time[i]] = {
+        temperature: h.temperature_2m[i] ?? 0,
+        humidity: h.relative_humidity_2m[i] ?? 0,
+        wind_speed: h.wind_speed_10m[i] ?? 0,
+      };
+    }
+    return map;
+  } catch {
+    return null;
+  }
+}
+
 // ==================== City Air Quality ====================
 export async function fetchCityAirQuality(cityName: string): Promise<CityAirQuality | null> {
   try {
