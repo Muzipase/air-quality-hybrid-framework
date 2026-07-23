@@ -176,7 +176,7 @@ export default function HistoricalPage() {
       <div className="hist-header">
         <div>
           <h1 className="hist-title">Historical Air Quality Trends</h1>
-          <p className="hist-subtitle">Data from CAMS Global atmospheric composition model (Aug 2022 &ndash; present)</p>
+          <p className="hist-subtitle">Aug 2022 &ndash; present</p>
         </div>
       </div>
 
