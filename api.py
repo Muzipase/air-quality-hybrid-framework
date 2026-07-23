@@ -180,7 +180,7 @@ def _get_feature_matrix(data: pd.DataFrame) -> pd.DataFrame:
     """Return only numeric, model-safe feature columns from a processed dataframe."""
     excluded_columns = {"aqi_category", "timestamp", "location", "city", "country"}
     feature_columns = [
-        col for col in data.columns if col not in excluded_columns and pd.api.types.is_numeric_dtype(data[col])
+        col for col in data.columns if col not in excluded_columns and pd.api.types.is_numeric_dtype(data[col]) and not pd.api.types.is_bool_dtype(data[col])
     ]
     return data[feature_columns]
 
@@ -976,7 +976,8 @@ async def execute_preprocessing(authorized: bool = Depends(require_admin_token))
         data = engineer_features(data)
 
         # Fit scaler on processed feature data and persist it for future predictions
-        feature_columns = [col for col in data.columns if col not in ['aqi_category', 'timestamp']]
+        NON_FEATURE = {"aqi_category", "timestamp", "location", "city", "country"}
+        feature_columns = [col for col in data.columns if col not in NON_FEATURE and pd.api.types.is_numeric_dtype(data[col]) and not pd.api.types.is_bool_dtype(data[col])]
         _, scaler = fit_scaler(data[feature_columns])
         await asyncio.to_thread(save_scaler, scaler, SCALER_PATH)
         data = apply_scaler_to_dataframe(data, scaler, feature_columns)
@@ -1216,6 +1217,8 @@ async def predict(input_data: PredictionInput, model_type: str = "optimized"):
             col
             for col in input_df.columns
             if col not in ['aqi_category', 'timestamp', 'location', 'city', 'country']
+            and pd.api.types.is_numeric_dtype(input_df[col])
+            and not pd.api.types.is_bool_dtype(input_df[col])
         ]
 
         scaler = await cache.get_scaler()
@@ -1328,6 +1331,8 @@ async def predict_live(city: str, model_type: str = "optimized"):
         feature_columns = [
             col for col in input_df.columns
             if col not in ['aqi_category', 'timestamp', 'location', 'city', 'country']
+            and pd.api.types.is_numeric_dtype(input_df[col])
+            and not pd.api.types.is_bool_dtype(input_df[col])
         ]
 
         scaler = await cache.get_scaler()

@@ -2,7 +2,7 @@ import pandas as pd
 from typing import Dict, List
 
 REQUIRED_FEATURE_COLUMNS = ["pm25", "pm10", "no2", "so2", "co", "o3"]
-OPTIONAL_FEATURE_COLUMNS = ["temperature", "humidity", "wind_speed"]
+OPTIONAL_FEATURE_COLUMNS = ["temperature", "humidity", "wind_speed", "rainfall"]
 
 
 def validate_dataframe(df: pd.DataFrame, require_target: bool = False) -> Dict[str, object]:

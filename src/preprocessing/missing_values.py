@@ -10,7 +10,7 @@ def fill_missing_values(df: pd.DataFrame) -> pd.DataFrame:
     data = df.copy()
     numeric_columns = [
         column
-        for column in ["pm25", "pm10", "no2", "so2", "co", "o3", "temperature", "humidity", "wind_speed"]
+        for column in ["pm25", "pm10", "no2", "so2", "co", "o3", "temperature", "humidity", "wind_speed", "rainfall"]
         if column in data.columns
     ]
 

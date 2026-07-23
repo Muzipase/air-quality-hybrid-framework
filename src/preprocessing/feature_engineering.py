@@ -66,4 +66,15 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     data["is_high_pm25"] = data.get("pm25", 0.0) > 35.4
     data["is_high_pm10"] = data.get("pm10", 0.0) > 150.0
 
+    # Temporal features from timestamp
+    if "timestamp" in data.columns:
+        ts = pd.to_datetime(data["timestamp"], errors="coerce")
+        data["hour"] = ts.dt.hour
+        data["day_of_week"] = ts.dt.dayofweek
+        data["month"] = ts.dt.month
+    else:
+        data["hour"] = 0
+        data["day_of_week"] = 0
+        data["month"] = 1
+
     return data

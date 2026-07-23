@@ -2,7 +2,7 @@ from sklearn.svm import SVC
 from src.optimization.bayesian_optimizer import optimize_svm_hyperparameters
 
 
-def train_optimized_svm(X, y, n_trials: int = 20):
+def train_optimized_svm(X, y, n_trials: int = 10):
     best_params, study = optimize_svm_hyperparameters(X, y, n_trials=n_trials)
     model = SVC(
         kernel=best_params.get("kernel", "rbf"),

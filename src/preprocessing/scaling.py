@@ -36,6 +36,10 @@ def apply_scaler_to_dataframe(df: pd.DataFrame, scaler: StandardScaler, feature_
     if not numeric_columns:
         return result
 
+    for col in numeric_columns:
+        if col in result.columns:
+            result[col] = result[col].astype(float)
+
     scaled_values = scaler.transform(result[numeric_columns])
     result.loc[:, numeric_columns] = scaled_values
     return result

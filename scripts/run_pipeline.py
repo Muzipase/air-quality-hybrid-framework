@@ -1,6 +1,6 @@
 """
 End-to-end ML pipeline: fetch data, preprocess, balance, train, evaluate.
-Usage: python scripts/run_pipeline.py [--source auto|openmeteo|openaq] [--city Lusaka]
+Usage: python scripts/run_pipeline.py [--source auto|openmeteo|openaq] [--city Lusaka] [--historical]
 """
 import sys
 import argparse
@@ -32,13 +32,20 @@ import pandas as pd
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
+NON_FEATURE_COLUMNS = {"aqi_category", "timestamp", "location", "city", "country"}
 
-def run_pipeline(source: str = "auto", city: str = None):
+
+def run_pipeline(source: str = "auto", city: str = None, historical: bool = False):
     ensure_dirs()
 
     # 1. Fetch data
-    logger.info("Fetching data (source=%s, city=%s)...", source, city)
-    data = fetch_data(source=source, city=city)
+    if historical:
+        logger.info("Fetching HISTORICAL data (2022-present)...")
+        from src.ingestion.openmeteo_client import fetch_historical_data
+        data = fetch_historical_data(city=city)
+    else:
+        logger.info("Fetching data (source=%s, city=%s)...", source, city)
+        data = fetch_data(source=source, city=city)
     if data is None or data.empty:
         logger.error("No data retrieved. Aborting.")
         return False
@@ -51,7 +58,9 @@ def run_pipeline(source: str = "auto", city: str = None):
     data = fill_missing_values(data)
     data = engineer_features(data)
 
-    feature_columns = [col for col in data.columns if col not in ['aqi_category', 'timestamp']]
+    feature_columns = [col for col in data.columns if col not in NON_FEATURE_COLUMNS]
+    # Keep only numeric columns as features (exclude booleans, strings)
+    feature_columns = [col for col in feature_columns if pd.api.types.is_numeric_dtype(data[col]) and not pd.api.types.is_bool_dtype(data[col])]
     _, scaler = fit_scaler(data[feature_columns])
     save_scaler(scaler, SCALER_PATH)
     data = apply_scaler_to_dataframe(data, scaler, feature_columns)
@@ -59,8 +68,7 @@ def run_pipeline(source: str = "auto", city: str = None):
     logger.info("Preprocessed %d records, saved to %s", len(data), PROCESSED_DATA_PATH)
 
     # 3. Multicollinearity check
-    excluded = {"aqi_category", "timestamp", "location", "city", "country"}
-    feature_cols = [c for c in data.columns if c not in excluded and pd.api.types.is_numeric_dtype(data[c])]
+    feature_cols = [c for c in data.columns if c not in NON_FEATURE_COLUMNS and pd.api.types.is_numeric_dtype(data[c]) and not pd.api.types.is_bool_dtype(data[c])]
     vif_df = compute_vif(data, feature_cols)
     logger.info("VIF analysis:\n%s", vif_df.to_string(index=False))
 
@@ -73,6 +81,15 @@ def run_pipeline(source: str = "auto", city: str = None):
 
     X_train_bal, y_train_bal = apply_smote_tomek(X_train, y_train)
     logger.info("After SMOTE-Tomek: %d records (was %d)", len(X_train_bal), len(X_train))
+
+    # Subsample if balanced set is too large for SVM training speed
+    MAX_TRAIN = 30000
+    if len(X_train_bal) > MAX_TRAIN:
+        from sklearn.utils import resample
+        X_train_bal, y_train_bal = resample(
+            X_train_bal, y_train_bal, n_samples=MAX_TRAIN, random_state=42, stratify=y_train_bal
+        )
+        logger.info("Subsampled to %d records for training speed", MAX_TRAIN)
 
     # 5. Train baseline
     logger.info("Training baseline SVM...")
@@ -95,7 +112,8 @@ def run_pipeline(source: str = "auto", city: str = None):
     try:
         from src.explainability.shap_explainer import ShapExplainer
         explainer = ShapExplainer(optimized_model, X_train_bal)
-        explainer.save_summary_plot(X_test, SHAP_PLOTS_DIR)
+        shap_sample = X_test.sample(n=min(50, len(X_test)), random_state=42)
+        explainer.save_summary_plot(shap_sample, SHAP_PLOTS_DIR)
     except Exception as e:
         logger.warning("Could not save SHAP plot: %s", e)
 
@@ -107,6 +125,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Air Quality ML Pipeline")
     parser.add_argument("--source", default="auto", choices=["auto", "openmeteo", "openaq"])
     parser.add_argument("--city", default=None)
+    parser.add_argument("--historical", action="store_true", help="Fetch multi-year historical data from Open-Meteo (2022-present)")
     args = parser.parse_args()
-    success = run_pipeline(source=args.source, city=args.city)
+    success = run_pipeline(source=args.source, city=args.city, historical=args.historical)
     sys.exit(0 if success else 1)

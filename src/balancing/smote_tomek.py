@@ -6,7 +6,7 @@ from typing import Tuple
 
 logger = logging.getLogger(__name__)
 
-MAX_SYNTHETIC_RATIO = 3.0
+MAX_SYNTHETIC_RATIO = 1.5
 
 
 def apply_smote_tomek(
